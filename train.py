@@ -32,9 +32,7 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg,
     for i in range(cfg.TRAIN.epoch_iters):
         global_step = (epoch*cfg.TRAIN.epoch_iters)+i
         # load a batch of data
-        batch_data = next(iterator)[0]
-        for k in batch_data.keys():
-            batch_data[k] = batch_data[k].cuda()
+        batch_data = next(iterator)
 
         #Comet Log Images
         if i % 200 ==0:

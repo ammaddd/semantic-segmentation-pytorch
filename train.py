@@ -3,7 +3,7 @@ import os
 import time
 # import math
 import random
-from comet_ml import Experiment
+from comet_utils import CometLogger
 import argparse
 from distutils.version import LooseVersion
 # Numerical libs
@@ -19,7 +19,7 @@ from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate,
 
 # train one epoch
 def train(segmentation_module, iterator, optimizers, history, epoch, cfg,
-          experiment):
+          comet_logger):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     ave_total_loss = AverageMeter()
@@ -36,12 +36,12 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg,
 
         #Comet Log Images
         if i % 200 ==0:
-            experiment.log_image(batch_data['img_data'][0].detach().cpu().numpy(),
-                                 name="train_images",
-                                 image_channels="first", step=global_step)
-            experiment.log_image(batch_data['seg_label'][0].detach().cpu().numpy(),
-                                 name="train_labels",
-                                 image_channels="first", step=global_step)
+            comet_logger.log_image(batch_data['img_data'][0].detach().cpu().numpy(),
+                                   name="train_images",
+                                   image_channels="first", step=global_step)
+            comet_logger.log_image(batch_data['seg_label'][0].detach().cpu().numpy(),
+                                   name="train_labels",
+                                   image_channels="first", step=global_step)
         
         data_time.update(time.time() - tic)
         segmentation_module.zero_grad()
@@ -56,12 +56,12 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg,
         acc = acc.mean()
 
         #Comet Log Metrics
-        experiment.log_metric("train_loss", loss, step=global_step, epoch=epoch)
-        experiment.log_metric("train_acc", acc, step=global_step, epoch=epoch)
-        experiment.log_metric("lr_encoder", cfg.TRAIN.running_lr_encoder,
-                              step=global_step, epoch=epoch)
-        experiment.log_metric("lr_decoder", cfg.TRAIN.running_lr_decoder,
-                              step=global_step, epoch=epoch)
+        comet_logger.log_metric("train_loss", loss, step=global_step, epoch=epoch)
+        comet_logger.log_metric("train_acc", acc, step=global_step, epoch=epoch)
+        comet_logger.log_metric("lr_encoder", cfg.TRAIN.running_lr_encoder,
+                                step=global_step, epoch=epoch)
+        comet_logger.log_metric("lr_decoder", cfg.TRAIN.running_lr_decoder,
+                                step=global_step, epoch=epoch)
 
         # Backward
         loss.backward()
@@ -92,7 +92,7 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg,
             history['train']['acc'].append(acc.data.item())
 
 
-def checkpoint(nets, history, cfg, epoch, experiment):
+def checkpoint(nets, history, cfg, epoch, comet_logger):
     print('Saving checkpoints...')
     (net_encoder, net_decoder, crit) = nets
 
@@ -108,11 +108,11 @@ def checkpoint(nets, history, cfg, epoch, experiment):
     torch.save(
         dict_decoder,
         '{}/decoder_epoch_{}.pth'.format(cfg.DIR, epoch))
-    experiment.log_model(
+    comet_logger.log_model(
         cfg.MODEL.arch_encoder, '{}/history_epoch_{}.pth'.format(cfg.DIR, epoch))
-    experiment.log_model(
+    comet_logger.log_model(
         cfg.MODEL.arch_encoder, '{}/encoder_epoch_{}.pth'.format(cfg.DIR, epoch))
-    experiment.log_model(
+    comet_logger.log_model(
         cfg.MODEL.arch_encoder, '{}/decoder_epoch_{}.pth'.format(cfg.DIR, epoch))
 
 def group_weight(module):
@@ -165,8 +165,8 @@ def adjust_learning_rate(optimizers, cur_iter, cfg):
         param_group['lr'] = cfg.TRAIN.running_lr_decoder
 
 
-def main(cfg, gpus, experiment):
-    experiment.log_asset_data(cfg, "cfg.yaml")
+def main(cfg, gpus, comet_logger):
+    comet_logger.log_asset_data(cfg, "cfg.yaml")
     # Network Builders
     net_encoder = ModelBuilder.build_encoder(
         arch=cfg.MODEL.arch_encoder.lower(),
@@ -225,10 +225,10 @@ def main(cfg, gpus, experiment):
 
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
         train(segmentation_module, iterator_train, optimizers, history, epoch+1, cfg,
-              experiment)
+              comet_logger)
 
         # checkpointing
-        checkpoint(nets, history, cfg, epoch+1, experiment)
+        checkpoint(nets, history, cfg, epoch+1, comet_logger)
 
     print('Training Done!')
 
@@ -237,7 +237,6 @@ if __name__ == '__main__':
     assert LooseVersion(torch.__version__) >= LooseVersion('0.4.0'), \
         'PyTorch>=0.4.0 is required'
 
-    experiment = Experiment(auto_metric_logging=False)
     parser = argparse.ArgumentParser(
         description="PyTorch Semantic Segmentation Training"
     )
@@ -259,7 +258,15 @@ if __name__ == '__main__':
         default=None,
         nargs=argparse.REMAINDER,
     )
+    parser.add_argument(
+        '--comet',
+        default=False,
+        type=bool,
+        help='enable comet logging'
+    )
     args = parser.parse_args()
+
+    comet_logger = CometLogger(args.comet, auto_metric_logging=False)
 
     cfg.merge_from_file(args.cfg)
     cfg.merge_from_list(args.opts)
@@ -299,6 +306,6 @@ if __name__ == '__main__':
     random.seed(cfg.TRAIN.seed)
     torch.manual_seed(cfg.TRAIN.seed)
 
-    experiment.log_others(vars(args))
+    comet_logger.log_others(vars(args))
 
-    main(cfg, gpus, experiment)
+    main(cfg, gpus, comet_logger)

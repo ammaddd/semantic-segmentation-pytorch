@@ -262,7 +262,7 @@ if __name__ == '__main__':
         '--comet',
         default=False,
         type=bool,
-        help='enable comet logging'
+        help='enable comet logging (if comet installed)'
     )
     args = parser.parse_args()
 
